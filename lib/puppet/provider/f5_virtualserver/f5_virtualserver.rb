@@ -52,7 +52,7 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
       response.body["get_#{method}_response".to_sym][:return][:item]
     end
     define_method("#{method}=") do |value|
-      message = { virtual_servers: { item: resource[:name] }, types: { item: resource[method.to_sym]}}
+      message = { virtual_servers: { item: resource[:name] }, default_pools: { item: resource[method.to_sym]}}
       transport[wsdl].call("set_#{method}".to_sym, message: message)
     end
   end
@@ -315,7 +315,7 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
     destination = { :address => network_address(resource[:destination]),
                     :port    => network_port(resource[:destination])}
 
-    message = { virtual_servers: { item: resource[:name] }, destination: { item: [destination] }}
+    message = { virtual_servers: { item: resource[:name] }, destinations: { item: [destination] }}
     transport[wsdl].call(:set_destination, message: message)
   end
 
@@ -374,6 +374,7 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
     vs_profiles  = []
 
     message = { definitions: { item: [vs_definition]}, wildmasks: { item: [vs_wildmask] }, resources: { item: [vs_resources] }, profiles: { item: [vs_profiles] }}
+
     transport[wsdl].call(:create, message: message)
 
     # profile should be the first value added since some other settings require it.

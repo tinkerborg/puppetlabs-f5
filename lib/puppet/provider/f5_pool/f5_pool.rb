@@ -48,7 +48,7 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
     end
   end
 
-  def member
+  def members
     result = {}
     addressport = []
     members = []
@@ -78,7 +78,7 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
     result
   end
 
-  def member=(value)
+  def members=(value)
     response = []
     response << transport[wsdl].get(:get_member_v2, { pool_names: { item: resource[:name]}})
 
@@ -87,7 +87,10 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
       "#{system[:address]}:#{system[:port]}"
     }
 
-    members = resource[:member].keys
+    #members = resource[:member].keys
+    members = resource[:members].collect { |member| 
+        "#{member['name']}:#{member['port']}"
+    }
 
     # Should add new members first to avoid removing all members of the pool.
     (members - current_members).each do |node|
@@ -105,55 +108,123 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
       end
     end
 
-    properties = {
-      'connection_limit' => 'limits',
-      'dynamic_ratio'    => 'dynamic_ratios',
-      'priority'         => 'priorities',
-      'ratio'            => 'ratios',
-    }
+    # #TODO - is any of this necessary if we define the node separately?
+##    properties = {
+#      'connection_limit' => 'limits',
+#      'dynamic_ratio'    => 'dynamic_ratios',
+#      'priority'         => 'priorities',
+#      'ratio'            => 'ratios',
+#    }
 
-    properties.each do |name, message_name|
-      value.each do |address,hash|
-        address, port = address.split(':')
-        message = { pool_names: {items: resource[:name] }, members: {items: { items: { address: address, port: port }}}, message_name => { items: { items: hash[name]}}}
-        transport[wsdl].call("set_member_#{name}".to_sym, message: message)
-      end
-    end
+    #properties.each do |name, message_name|
+    #  value.each do |node,hash|
+    #    puts "PRESPLIT"
+    #    #address, port = address.split(':')
+    #    address = node['name']
+    #    port = node['port']
+#
+#        puts "POSTSPLIT #{hash}"
+#        #message = { pool_names: {items: resource[:name] }, members: {items: { items: { address: address, port: port }}}, message_name => { items: { items: hash[name]}}}
+#        message = { pool_names: {items: resource[:name] }, members: {items: { items: { address: address, port: port }}} }
+#        #, message_name => { items: { items: hash[name]}}}
+#        puts "HERE MESSAGE #{message}" 
+#        #transport[wsdl].call("set_member_#{name}".to_sym, message: message)
+#      end
+#    end
   end
 
-  def monitor_association
+  def health_monitors
     association = nil
-    monitor = transport[wsdl].get(:get_monitor_association, { pool_names: { item: resource[:name] }})
 
-    if monitor
+    monitor = transport[wsdl].get(:get_monitor_association, { pool_names: { item: resource[:name] }})
+   #MON {:pool_name=>"/Common/tomcat-prd-main_http_pool", :monitor_rule=>{:type=>"MONITOR_RULE_TYPE_AND_LIST", :quorum=>"0", :monitor_templates=>{:item=>["/Common/gateway_icmp", "/Common/TCP_slowcheck"]}}} 
+    if monitor && monitor[:monitor_rule]
       association = {
         'type'              => monitor[:monitor_rule][:type],
         'quorum'            => monitor[:monitor_rule][:quorum],
       }
-      if monitor[:monitor_rule][:monitor_templates][:item]
+      if !monitor[:monitor_rule][:monitor_templates].nil? and monitor[:monitor_rule][:monitor_templates][:item]
         association['monitor_templates'] = monitor[:monitor_rule][:monitor_templates][:item]
       end
     end
     association
   end
 
-  def monitor_association=(value)
-    monitor = resource[:monitor_association]
 
-    if monitor.empty? then
-      transport[wsdl].call(:remove_monitor_association, message: { pool_names: { item: resource[:name]}})
-    else
-      newval = { :pool_name => resource[:name],
-        :monitor_rule => {
-          :type              => monitor['type'],
-          :quorum            => monitor['quorum'],
-          :monitor_templates => { items: monitor['monitor_templates'] }
-        }
-      }
 
+  def health_monitors=(value)
+
+    quorum = resource[:availability_requirement] || "all"
+
+    config_monitors = resource[:health_monitors]
+    
+    current_association = transport[wsdl].get(:get_monitor_association, { pool_names: { item: resource[:name] }})
+    current_monitor_rule = current_association[:monitor_rule]
+
+    new_monitor_rule = build_monitor_config quorum, config_monitors
+    if configs_differ(current_monitor_rule, new_monitor_rule)
+      newval = { :pool_name => resource[:name], :monitor_rule => new_monitor_rule }
+      msg = { monitor_associations: { items: newval } }
       transport[wsdl].call(:set_monitor_association, message: { monitor_associations: { items: newval }})
     end
   end
+
+  def availability_requirement
+    transport[wsdl].get(:get_monitor_association, { pool_names: { item: resource[:name] }})
+  end
+  
+  def availability_requirement=(value)
+
+    quorum = resource[:availability_requirement] || "all"
+
+    config_monitors = resource[:health_monitors]
+    
+    current_association = transport[wsdl].get(:get_monitor_association, { pool_names: { item: resource[:name] }})
+    current_monitor_rule = current_association[:monitor_rule]
+
+    new_monitor_rule = build_monitor_config quorum, config_monitors
+    if configs_differ(current_monitor_rule, new_monitor_rule)
+      newval = { :pool_name => resource[:name], :monitor_rule => new_monitor_rule }
+      msg = { monitor_associations: { items: newval } }
+      transport[wsdl].call(:set_monitor_association, message: { monitor_associations: { items: newval }})
+    end
+  end
+
+  def configs_differ(a, b) 
+    if a[:type] != b[:type] 
+      return true
+    end
+    if a[:quorum] != b[:quorum]
+      return true
+    end
+    if a[:monitor_templates][:item]
+      if a[:monitor_templates][:item].instance_of? Array
+        diff = a[:monitor_templates][:item] - b[:monitor_templates][:item]
+        return ! diff.empty?
+      else
+        return a[:monitor_templates][:item] != b[:monitor_templates][:item]
+      end
+    else
+      return a[:monitor_templates] != b[:monitor_templates] 
+    end
+    false
+  end
+
+  def build_monitor_config(quorum = 'all', monitors = [])
+    if monitors.empty?
+      {:type => "MONITOR_RULE_TYPE_NONE", :quorum => "0", :monitor_templates => {:item => []}}
+    else
+      if monitors.size == 1
+        {:type =>"MONITOR_RULE_TYPE_SINGLE", :quorum =>"0", :monitor_templates => {:item => monitors[0]}}
+      else
+        if quorum == 'all' or quorum.empty? or quorum == 0 or quorum == '0'
+          {:type => "MONITOR_RULE_TYPE_AND_LIST", :quorum => "0", :monitor_templates => {:item => monitors}}
+        else
+          {:type => "MONITOR_RULE_TYPE_M_OF_N", :quorum => "#{quorum}", :monitor_templates => {:item => monitors}}
+        end 
+      end
+    end
+  end 
 
   def create
     Puppet.debug("Puppet::Provider::F5_Pool: creating F5 pool #{resource[:name]}")
@@ -177,8 +248,8 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
       'server_link_qos',
       'simple_timeout',
       'slow_ramp_time',
-      'monitor_association',
-      'member'
+      'health_monitors',
+      'members'
     ]
 
     methods.each do |method|
@@ -193,5 +264,7 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
 
   def exists?
     transport[wsdl].get(:get_list).include?(resource[:name])
+    #moo
+    #false
   end
 end

@@ -72,6 +72,7 @@ Puppet::Type.type(:f5_node).provide(:f5_node, :parent => Puppet::Provider::F5) d
       addresses: { item: resource[:addresses] },
       limits: { item: resource[:connection_limit] }
     }
+
     transport[wsdl].call(:create, message: message)
 
     methods = [
