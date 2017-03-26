@@ -243,11 +243,6 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
     remove = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_remove] } }
     add = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_add] } }
 
-    puts "EXIST #{existing.inspect}"
-    puts "NEW #{new.inspect}"
-    puts "REMOVE #{remove.inspect}"
-    puts "ADD #{add.inspect}"
-
     transport[session_wsdl].call(:start_transaction)
     transport[wsdl].call(:remove_profile, message: remove) unless to_remove.empty?
     transport[wsdl].call(:add_profile, message: add) unless to_add.empty?
