@@ -13,12 +13,11 @@ Puppet::Type.newtype(:f5_devicegroup) do
     end
 
     newparam(:name, :namevar=>true) do
-        desc "The group name"
-        #newvalues(/^[[:alpha:][:digit:]]+$/)
+        desc "devicegroup name"
     end
 
     newproperty(:config_ensure) do
-        desc "Set to :synched to ensure config is synched"
+        desc "Set to in_sync to ensure config is synched"
     end
 
 end
