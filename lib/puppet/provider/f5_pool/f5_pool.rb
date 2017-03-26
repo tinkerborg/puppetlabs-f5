@@ -264,7 +264,6 @@ Puppet::Type.type(:f5_pool).provide(:f5_pool, :parent => Puppet::Provider::F5) d
 
   def exists?
     transport[wsdl].get(:get_list).include?(resource[:name])
-    #moo
-    #false
   end
+
 end

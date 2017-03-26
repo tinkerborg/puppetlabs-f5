@@ -11,9 +11,17 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
   def self.wsdl
     'LocalLB.VirtualServer'
   end
+  
+  def self.session_wsdl
+    'System.Session'
+  end
 
   def wsdl
     self.class.wsdl
+  end
+  
+  def session_wsdl
+    self.class.session_wsdl
   end
 
   def self.instances
@@ -143,8 +151,11 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
 
     remove = { virtual_servers: { item: resource[:name] }, clone_pools: { item: [to_remove]}}
     add = { virtual_servers: { item: resource[:name] }, clone_pools: { item: [to_add]}}
+
+    transport[session_wsdl].call(:start_transaction)
     transport[wsdl].call(:remove_clone_pool, remove) unless to_remove.empty?
     transport[wsdl].call(:add_clone_pool, add) unless to_add.empty?
+    transport[session_wsdl].call(:submit_transaction)
   end
 
   def persistence_profile
@@ -187,8 +198,10 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
 
     remove = { virtual_servers: { item: resource[:name] }, clone_pools: { item: [to_remove]}}
     add = { virtual_servers: { item: resource[:name] }, clone_pools: { item: [to_add]}}
+    transport[session_wsdl].call(:start_transaction)
     transport[wsdl].call(:remove_persistence_profile, remove) unless to_remove.empty?
     transport[wsdl].call(:add_persistence_profile, add) unless to_add.empty?
+    transport[session_wsdl].call(:submit_transaction)
   end
 
   def profile
@@ -196,10 +209,14 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
     message = { virtual_servers: { item: resource[:name] }}
     response = transport[wsdl].call(:get_profile, message: message).body[:get_profile_response][:return][:item][:item]
     # This is ugly but we can get back a hash 
-    Array(response).each do |hash|
-      if hash.is_a?(Hash)
-        profiles[hash[:profile_name]] = hash[:profile_context]
-      end
+    if response.is_a?(Hash)
+        profiles[response[:profile_name]] = response[:profile_context]
+    else
+        Array(response).each do |hash|
+            if hash.is_a?(Hash)
+                profiles[hash[:profile_name]] = hash[:profile_context]
+            end
+        end
     end
     profiles
   end
@@ -223,10 +240,18 @@ Puppet::Type.type(:f5_virtualserver).provide(:f5_virtualserver, :parent => Puppe
       end
     end
 
-    remove = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_remove]}}
-    add = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_add]}}
+    remove = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_remove] } }
+    add = { virtual_servers: { item: resource[:name] }, profiles: { item: [to_add] } }
+
+    puts "EXIST #{existing.inspect}"
+    puts "NEW #{new.inspect}"
+    puts "REMOVE #{remove.inspect}"
+    puts "ADD #{add.inspect}"
+
+    transport[session_wsdl].call(:start_transaction)
     transport[wsdl].call(:remove_profile, message: remove) unless to_remove.empty?
     transport[wsdl].call(:add_profile, message: add) unless to_add.empty?
+    transport[session_wsdl].call(:submit_transaction)
   end
 
   def rule
