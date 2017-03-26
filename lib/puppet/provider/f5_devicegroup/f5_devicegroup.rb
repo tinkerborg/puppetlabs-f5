@@ -30,10 +30,6 @@ Puppet::Type.type(:f5_devicegroup).provide(:f5_devicegroup, :parent => Puppet::P
         api_call 'System.ConfigSync', :synchronize_to_group_v2, { group: resource[:name], device: sync_source_device,  force: 'false' }
     end
 
-    def device
-        @device ||= api_call 'Management.Device', :get_local_device
-    end
-
     def sync_status
         @sync_status ||= api_call('Management.DeviceGroup', :get_sync_status, { device_groups: { item: [ resource[:name] ] } })
     end
